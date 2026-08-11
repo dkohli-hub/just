@@ -11,8 +11,8 @@ const pool = new Pool({
 });
 
 const MINT_PIN = process.env.MINT_PIN;
-const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY;
-const AI_MODEL = process.env.AI_MODEL || 'google/gemini-3.1-flash-lite-preview';
+const GEMINI_KEY = process.env.GEMINI_API_KEY;
+const AI_MODEL = process.env.AI_MODEL || 'gemini-3.1-flash-lite-preview';
 
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '25mb' }));
@@ -24,21 +24,45 @@ function auth(req, res, next) {
   next();
 }
 
-// ── OPENROUTER ──
+// ── GEMINI AI ──
 async function callAI(messages, maxTokens = 500) {
-  const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${OPENROUTER_KEY}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://mint-app.local',
-      'X-Title': 'MINT by DK'
-    },
-    body: JSON.stringify({ model: AI_MODEL, max_tokens: maxTokens, messages })
-  });
-  if (!resp.ok) throw new Error(`OpenRouter ${resp.status}: ${await resp.text()}`);
+  // Convert OpenAI-style messages to Gemini format
+  const contents = [];
+  let systemInstruction = null;
+
+  for (const m of messages) {
+    if (m.role === 'system') {
+      systemInstruction = { parts: [{ text: m.content }] };
+      continue;
+    }
+    // content can be string or array (vision)
+    if (typeof m.content === 'string') {
+      contents.push({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] });
+    } else {
+      // vision: array of {type, text} or {type, image_url}
+      const parts = m.content.map(c => {
+        if (c.type === 'text') return { text: c.text };
+        if (c.type === 'image_url') {
+          const url = c.image_url.url;
+          const match = url.match(/^data:(.+);base64,(.+)$/);
+          if (match) return { inline_data: { mime_type: match[1], data: match[2] } };
+        }
+        return null;
+      }).filter(Boolean);
+      contents.push({ role: 'user', parts });
+    }
+  }
+
+  const body = { contents, generationConfig: { maxOutputTokens: maxTokens } };
+  if (systemInstruction) body.systemInstruction = systemInstruction;
+
+  const resp = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${AI_MODEL}:generateContent?key=${GEMINI_KEY}`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+  );
+  if (!resp.ok) throw new Error(`Gemini ${resp.status}: ${await resp.text()}`);
   const data = await resp.json();
-  return data.choices?.[0]?.message?.content || null;
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
 }
 
 // ── DB INIT ──
