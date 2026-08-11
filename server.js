@@ -494,24 +494,6 @@ app.post('/api/photo', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// TEMP: clear all tables — will be removed after use
-app.post('/api/admin/clear-all', auth, async (req, res) => {
-  try {
-    await pool.query(`
-      DELETE FROM food_logs;
-      DELETE FROM morning_reports;
-      DELETE FROM water_logs;
-      DELETE FROM patterns;
-      DELETE FROM prefood;
-      DELETE FROM postfood;
-      DELETE FROM companion;
-      DELETE FROM feedback;
-      DELETE FROM profile;
-    `);
-    res.json({ ok: true, message: 'All tables cleared' });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
 // Health check
 app.get('/health', (req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
